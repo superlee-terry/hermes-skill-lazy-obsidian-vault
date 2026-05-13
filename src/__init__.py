@@ -1,11 +1,13 @@
 import json
 import logging
 from pathlib import Path
+from typing import Any
 
 from .config import VaultConfig
 from .indexer import SkillIndexer
 from .tools import SkillTools
 from .hooks import build_session_context
+from .sync import sync_skill_to_vault, remove_skill_from_vault
 
 logger = logging.getLogger(__name__)
 
@@ -132,6 +134,70 @@ def _check_vault_ready() -> bool:
         return False
 
 
+def _find_skill_md(name: str) -> str | None:
+    """Find SKILL.md path in ~/.hermes/skills/ by skill name."""
+    from pathlib import Path
+    home = Path.home() / ".hermes" / "skills"
+    if not home.exists():
+        return None
+    for md in home.rglob("SKILL.md"):
+        if md.parent.name == name:
+            return str(md)
+    return None
+
+
+def _on_post_tool_call(
+    tool_name: str = "",
+    args: dict | None = None,
+    result: Any = None,
+    task_id: str = "",
+    session_id: str = "",
+    tool_call_id: str = "",
+    duration_ms: int = 0,
+    **_: Any,
+) -> None:
+    """Sync vault when skill_manage creates/edits/deletes a skill."""
+    if tool_name != "skill_manage":
+        return
+    if not isinstance(args, dict):
+        return
+
+    # Check if the tool call succeeded
+    if isinstance(result, str):
+        try:
+            parsed = json.loads(result)
+            if not parsed.get("success"):
+                return
+        except (json.JSONDecodeError, TypeError):
+            return
+
+    action = args.get("action", "")
+    name = args.get("name", "")
+    if not name:
+        return
+
+    tools, config, indexer = _get_tools(str(Path(__file__).parent.parent / "config.yaml"))
+    vault_path = config.vault_path
+
+    if action == "delete":
+        if remove_skill_from_vault(name, vault_path):
+            indexer.update_index(vault_path)
+            logger.info("obsidian-skill-vault: synced delete for '%s'", name)
+    elif action in ("create", "edit", "patch", "write_file"):
+        skill_md = _find_skill_md(name)
+        if skill_md:
+            if sync_skill_to_vault(skill_md, vault_path):
+                indexer.update_index(vault_path)
+                logger.info("obsidian-skill-vault: synced %s for '%s'", action, name)
+    elif action == "remove_file":
+        # Supporting file removed — re-sync the whole skill
+        skill_md = _find_skill_md(name)
+        if skill_md:
+            if sync_skill_to_vault(skill_md, vault_path):
+                indexer.update_index(vault_path)
+                logger.info("obsidian-skill-vault: synced remove_file for '%s'", name)
+
+
 def register(ctx) -> None:
     """Hermes Plugin entry point — called by PluginManager."""
     config_path = str(Path(__file__).parent.parent / "config.yaml")
@@ -154,8 +220,15 @@ def register(ctx) -> None:
         )
 
     def _on_session_start(**kwargs):
-        """Initialize session-scoped state (warm caches, etc.)."""
+        """Initialize session-scoped state and sync vault index."""
         logger.info("obsidian-skill-vault: session started (id=%s)", kwargs.get("session_id"))
+        try:
+            stats = indexer.update_index(config.vault_path)
+            if stats["added"] or stats["updated"] or stats["removed"]:
+                logger.info("obsidian-skill-vault: index sync +%d ~%d -%d",
+                            stats["added"], stats["updated"], stats["removed"])
+        except Exception:
+            logger.debug("obsidian-skill-vault: index sync failed", exc_info=True)
 
     def _on_pre_llm_call(**kwargs):
         """Inject skill category index into the user message context."""
@@ -169,5 +242,6 @@ def register(ctx) -> None:
 
     ctx.register_hook("on_session_start", _on_session_start)
     ctx.register_hook("pre_llm_call", _on_pre_llm_call)
+    ctx.register_hook("post_tool_call", _on_post_tool_call)
 
     logger.info("obsidian-skill-vault plugin registered (vault=%s)", config.vault_path)
