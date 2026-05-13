@@ -1,0 +1,11 @@
+name: obsidian-skill-vault
+version: 0.1.0
+description: "Obsidian Vault 驱动的技能懒加载 Plugin"
+author: hermes-skill-lazy-obsidian-vault
+kind: standalone
+provides_tools:
+  - skill_lookup
+  - skill_load
+  - skill_categories
+provides_hooks:
+  - on_session_start
