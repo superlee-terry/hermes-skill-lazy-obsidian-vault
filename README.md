@@ -20,14 +20,36 @@ curl -L https://github.com/.../releases/latest/download/obsidian-skill-vault-$(u
 
 # 方式 2：pip 安装
 pip install obsidian-skill-vault
-
-# 初始化
-obsidian-skill-vault init --vault ~/my-skill-vault
-obsidian-skill-vault migrate --source ~/.hermes/skills
-obsidian-skill-vault index
 ```
 
 **零外部依赖**：不要求安装 Obsidian 桌面端或 Python，二进制内置 Vault 操作层、SQLite FTS5、文件监听。可直接用 Obsidian 打开 Vault 目录进行可视化管理（可选）。
+
+## 使用步骤
+
+本仓库 **不包含技能数据**（`vault/skills/` 和 `vault/_index/` 已在 `.gitignore` 中排除）。使用前需将本地 Hermes 技能迁移进来：
+
+```bash
+# 1. 初始化 Vault 目录结构
+obsidian-skill-vault init --vault ./vault
+
+# 2. 从 Hermes 技能目录迁移（自动生成 summary 和 triggers）
+obsidian-skill-vault migrate --source ~/.hermes/skills --vault ./vault
+
+# 3. 构建 SQLite FTS5 全文索引
+obsidian-skill-vault index --vault ./vault
+
+# 4. 检查迁移质量（可选）
+obsidian-skill-vault doctor --vault ./vault
+
+# 5. 启动 MCP Server（可选，备选方案）
+obsidian-skill-vault serve
+```
+
+迁移脚本会自动：
+- 从 SKILL.md 的 `description` 字段生成 `summary`
+- 从正文中 "When to use" 段落提取引号内的触发短语作为 `triggers`
+- 从 `metadata.hermes.tags` 和 `tags` 字段补充 triggers
+- 按 SKILL.md 所在目录结构推断 `categories`
 
 ## 目录结构
 
