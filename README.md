@@ -60,7 +60,8 @@ hermes-skill-lazy-obsidian-vault/
 │   ├── design.md                # 架构设计文档
 │   ├── implementation-plan.md   # 实现计划
 │   ├── compatibility.md         # 系统兼容性与影响分析
-│   └── installation.md          # 安装指南
+│   ├── installation.md          # 安装指南
+│   └── debugging-log.md         # 调试记录（问题与解决方案）
 ├── vault/                       # Obsidian Vault 根目录（可用 Obsidian 打开）
 │   ├── .obsidian/               # Obsidian 配置
 │   ├── _index/                  # 索引笔记（Hub Notes）
