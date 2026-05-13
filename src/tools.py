@@ -59,7 +59,7 @@ class SkillTools:
         return {"success": False, "error": f"Unknown action '{action}'. Use: create, edit, delete"}
 
     def _normalize_meta(self, content: str, category: str = "", description: str = "") -> tuple[dict, str]:
-        """Parse SKILL.md content, normalize metadata. Returns (meta, body)."""
+        """Parse SKILL.md content, normalize metadata. Returns (meta, body, error)."""
         if content.startswith("---"):
             post = frontmatter.loads(content)
             meta = dict(post.metadata)
@@ -71,18 +71,27 @@ class SkillTools:
         if "name" not in meta:
             return None, None, "Frontmatter must include 'name' field."
 
-        # Normalize categories
+        # Validate description
+        desc = description or meta.get("description", "")
+        if not desc or not str(desc).strip():
+            return None, None, "Frontmatter must include 'description' field."
+        if len(str(desc)) < 10:
+            return None, None, f"Description too vague ({len(str(desc))} chars). Provide at least 10 characters."
+
+        # Normalize categories: use provided category, fall back to existing
         cats = meta.get("categories", [])
         if isinstance(cats, str):
             cats = [cats]
         if category and category not in cats:
             cats.insert(0, category)
+        # Remove self-name from categories (should not be its own category)
+        name = meta["name"]
+        cats = [c for c in cats if c != name]
         meta["categories"] = list(dict.fromkeys(cats))
 
         # Summary
         if not meta.get("summary"):
-            desc = description or meta.get("description", "")
-            meta["summary"] = desc[:200].rstrip() if isinstance(desc, str) else ""
+            meta["summary"] = str(desc)[:200].rstrip() if isinstance(desc, str) else ""
 
         # Triggers
         if not meta.get("triggers"):
@@ -91,16 +100,16 @@ class SkillTools:
             for t in tags:
                 if t not in triggers:
                     triggers.append(t)
+            # Always include name as trigger
+            name_trigger = name.replace("-", " ")
+            if name_trigger not in triggers:
+                triggers.insert(0, name_trigger)
             meta["triggers"] = triggers
 
         return meta, body, None
 
     def _create(self, name: str, content: str, category: str, description: str) -> dict:
-        target = f"skills/{name}.md"
-        vault_file = Path(self.vault_path) / target
-        if vault_file.exists():
-            return {"success": False, "error": f"Skill '{name}' already exists. Use action='edit' to update."}
-
+        # Validate body length
         if not content.strip():
             return {"success": False, "error": "content is required for 'create'."}
 
@@ -108,15 +117,34 @@ class SkillTools:
         if err:
             return {"success": False, "error": err}
 
+        skill_name = meta["name"]
+        cats = meta.get("categories", [])
+
+        # Must have at least one real category
+        if not cats:
+            return {"success": False, "error": "Category is required. Provide a meaningful category (e.g. 'devops', 'software-development', 'media')."}
+
+        # Store under category directory: skills/<category>/<name>.md
+        primary_cat = cats[0]
+        target = f"skills/{primary_cat}/{skill_name}.md"
+        vault_file = Path(self.vault_path) / target
+        if vault_file.exists():
+            return {"success": False, "error": f"Skill '{skill_name}' already exists at {target}. Use action='edit' to update."}
+
+        # Check for duplicates by FTS name match
+        existing = self.indexer.get_skill(skill_name)
+        if existing:
+            return {"success": False, "error": f"Skill '{skill_name}' already exists at {existing['path']}. Use action='edit' to update."}
+
         ops = VaultOps(self.vault_path)
         ops.write_note(target, meta, body)
         self.indexer.update_index(self.vault_path)
         _generate_hub_notes(self.vault_path)
 
         # Sync to ~/.hermes/skills/ for compatibility
-        self._sync_to_hermes(name, content, category)
+        self._sync_to_hermes(skill_name, content, primary_cat)
 
-        return {"success": True, "message": f"Skill '{name}' created.", "path": target}
+        return {"success": True, "message": f"Skill '{skill_name}' created.", "path": target, "category": primary_cat}
 
     def _edit(self, name: str, content: str) -> dict:
         skill_data = self.indexer.get_skill(name)
@@ -137,7 +165,9 @@ class SkillTools:
         _generate_hub_notes(self.vault_path)
 
         # Sync to ~/.hermes/skills/
-        self._sync_to_hermes(name, content)
+        cats = meta.get("categories", [])
+        cat = cats[0] if cats else ""
+        self._sync_to_hermes(name, content, cat)
 
         return {"success": True, "message": f"Skill '{name}' updated.", "path": target}
 

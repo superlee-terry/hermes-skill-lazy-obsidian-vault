@@ -77,6 +77,11 @@ SKILL_INSTALL_SCHEMA = {
         "  create — Create a new skill (content = SKILL.md with YAML frontmatter + body)\n"
         "  edit   — Replace the full content of an existing skill\n"
         "  delete — Remove a skill from the vault\n\n"
+        "Requirements for 'create':\n"
+        "  - category is REQUIRED (e.g. 'devops', 'software-development', 'media')\n"
+        "  - Frontmatter must include 'name' and 'description' (>= 10 chars)\n"
+        "  - Skill name must be unique across the vault\n"
+        "  - Skill will be stored under skills/<category>/<name>.md\n\n"
         "Create when: complex task succeeded, user-corrected approach worked, "
         "non-trivial workflow discovered, or user asks to remember a procedure.\n"
         "Update when: instructions are stale/wrong, missing steps found during use.\n"
@@ -103,7 +108,12 @@ SKILL_INSTALL_SCHEMA = {
             },
             "category": {
                 "type": "string",
-                "description": "Optional category for organizing the skill (only used with 'create').",
+                "description": (
+                    "Category for organizing the skill. REQUIRED for 'create'. "
+                    "Examples: 'devops', 'software-development', 'media', 'game-development', "
+                    "'testing', 'data-science', 'research', 'creative'. "
+                    "Use existing categories when possible — call skill_categories() to list them."
+                ),
             },
         },
         "required": ["action", "name"],
