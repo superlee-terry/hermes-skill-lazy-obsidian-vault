@@ -7,6 +7,7 @@ provides_tools:
   - skill_lookup
   - skill_load
   - skill_categories
+  - skill_install
 provides_hooks:
   - on_session_start
   - pre_llm_call

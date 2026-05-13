@@ -67,6 +67,49 @@ SKILL_CATEGORIES_SCHEMA = {
     },
 }
 
+SKILL_INSTALL_SCHEMA = {
+    "name": "skill_install",
+    "description": (
+        "Create, edit, or delete a skill in the skill vault. "
+        "Skills are reusable procedural knowledge for recurring task types. "
+        "The skill is stored in the vault and indexed for search via skill_lookup.\n\n"
+        "Actions:\n"
+        "  create — Create a new skill (content = SKILL.md with YAML frontmatter + body)\n"
+        "  edit   — Replace the full content of an existing skill\n"
+        "  delete — Remove a skill from the vault\n\n"
+        "Create when: complex task succeeded, user-corrected approach worked, "
+        "non-trivial workflow discovered, or user asks to remember a procedure.\n"
+        "Update when: instructions are stale/wrong, missing steps found during use.\n"
+        "Confirm with user before creating or deleting."
+    ),
+    "parameters": {
+        "type": "object",
+        "properties": {
+            "action": {
+                "type": "string",
+                "enum": ["create", "edit", "delete"],
+                "description": "The action to perform.",
+            },
+            "name": {
+                "type": "string",
+                "description": "Skill name (lowercase, hyphens/underscores). Must match an existing skill for edit/delete.",
+            },
+            "content": {
+                "type": "string",
+                "description": (
+                    "Full SKILL.md content (YAML frontmatter + markdown body). "
+                    "Required for 'create' and 'edit'. Frontmatter must include 'name' and 'description'."
+                ),
+            },
+            "category": {
+                "type": "string",
+                "description": "Optional category for organizing the skill (only used with 'create').",
+            },
+        },
+        "required": ["action", "name"],
+    },
+}
+
 # --- Handlers ---
 
 _tools_instance: SkillTools | None = None
@@ -124,6 +167,20 @@ def _handle_skill_categories(args: dict, **_kw) -> str:
     )
     categories = tools.skill_categories()
     return json.dumps({"success": True, "categories": categories}, ensure_ascii=False)
+
+
+def _handle_skill_install(args: dict, **_kw) -> str:
+    tools, config, indexer = _get_tools(
+        str(Path(__file__).parent.parent / "config.yaml")
+    )
+    result = tools.skill_install(
+        action=args.get("action", ""),
+        name=args.get("name", ""),
+        content=args.get("content", ""),
+        category=args.get("category", ""),
+        description=args.get("description", ""),
+    )
+    return json.dumps(result, ensure_ascii=False)
 
 
 def _check_vault_ready() -> bool:
@@ -207,6 +264,7 @@ def register(ctx) -> None:
         ("skill_lookup", SKILL_LOOKUP_SCHEMA, _handle_skill_lookup, "🔍"),
         ("skill_load", SKILL_LOAD_SCHEMA, _handle_skill_load, "📖"),
         ("skill_categories", SKILL_CATEGORIES_SCHEMA, _handle_skill_categories, "📂"),
+        ("skill_install", SKILL_INSTALL_SCHEMA, _handle_skill_install, "📝"),
     )
 
     for name, schema, handler, emoji in _TOOLS:
