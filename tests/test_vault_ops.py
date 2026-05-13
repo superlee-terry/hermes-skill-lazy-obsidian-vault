@@ -72,3 +72,49 @@ class TestResolveWikilink:
     def test_resolve_nonexistent(self, tmp_vault):
         ops = VaultOps(str(tmp_vault))
         assert ops.resolve_wikilink("nonexistent") is None
+
+
+class TestListTags:
+    def test_lists_all_tags(self, tmp_vault, sample_skills):
+        ops = VaultOps(str(tmp_vault))
+        tags = ops.list_tags()
+        assert "python" in tags
+        assert "testing" in tags
+        assert "search" in tags
+
+    def test_tag_counts(self, tmp_vault, sample_skills):
+        ops = VaultOps(str(tmp_vault))
+        tags = ops.list_tags()
+        assert tags["python"] == 1
+        assert tags["testing"] == 1
+
+    def test_empty_vault(self, tmp_vault):
+        ops = VaultOps(str(tmp_vault))
+        tags = ops.list_tags()
+        assert tags == {}
+
+
+class TestListBacklinks:
+    def test_finds_backlinks(self, tmp_vault, sample_skills):
+        ops = VaultOps(str(tmp_vault))
+        # Write a note that links to tdd-workflow
+        ops.write_note(
+            "notes/my-note.md",
+            {"name": "my-note"},
+            "See [[tdd-workflow]] for testing approach.",
+        )
+        backlinks = ops.list_backlinks("tdd-workflow")
+        assert len(backlinks) == 1
+        assert "my-note.md" in backlinks[0]
+
+    def test_no_backlinks(self, tmp_vault, sample_skills):
+        ops = VaultOps(str(tmp_vault))
+        backlinks = ops.list_backlinks("tdd-workflow")
+        assert backlinks == []
+
+    def test_multiple_backlinks(self, tmp_vault, sample_skills):
+        ops = VaultOps(str(tmp_vault))
+        ops.write_note("notes/a.md", {}, "Use [[tdd-workflow]] here.")
+        ops.write_note("notes/b.md", {}, "Also [[tdd-workflow]].")
+        backlinks = ops.list_backlinks("tdd-workflow")
+        assert len(backlinks) == 2

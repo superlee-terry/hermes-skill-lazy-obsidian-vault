@@ -16,12 +16,33 @@ def migrate_skills(source_dir: str, vault_path: str) -> int:
         if "name" not in meta:
             meta["name"] = skill_md.parent.stem
 
-        # Strip the SKILL.md's parent dir (the skill name folder) from the path
-        # e.g. software-development/testing/my-tdd/SKILL.md → software-development/testing
         rel_parent = skill_md.parent.parent.relative_to(source)
         target_path = f"skills/{rel_parent / meta['name']}.md"
 
         ops.write_note(target_path, meta, post.content)
         count += 1
 
+    # Generate Hub Notes after migration
+    _generate_hub_notes(vault_path)
     return count
+
+
+def _generate_hub_notes(vault_path: str):
+    """Create Hub Notes in _index/ that link skills by category."""
+    ops = VaultOps(vault_path)
+    skills = ops.scan_skills()
+
+    # Group skills by category
+    cat_skills: dict[str, list[str]] = {}
+    for s in skills:
+        for cat in s.categories:
+            cat_skills.setdefault(cat, []).append(s.name)
+
+    index_dir = Path(vault_path) / "_index"
+    index_dir.mkdir(parents=True, exist_ok=True)
+
+    for cat, names in sorted(cat_skills.items()):
+        hub_path = f"_index/{cat}.md"
+        links = "\n".join(f"- [[{n}]]" for n in sorted(names))
+        content = f"# {cat}\n\n## 技能列表\n\n{links}\n"
+        ops.write_note(hub_path, {"type": "hub", "category": cat}, content)

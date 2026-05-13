@@ -64,3 +64,46 @@ class TestQueryIndex:
         cats = indexed_vault.list_categories()
         sw = next(c for c in cats if c["name"] == "software-development")
         assert sw["skill_count"] == 3
+
+
+class TestUpdateIndex:
+    def test_detects_new_skill(self, tmp_vault, sample_skills, indexer):
+        ops = VaultOps(str(tmp_vault))
+        skills = ops.scan_skills()
+        indexer.build_index(skills)
+
+        # Add a new skill
+        ops.write_note(
+            "skills/new-category/new-skill.md",
+            {"name": "new-skill", "categories": ["new-category"], "triggers": ["new"], "summary": "New"},
+            "# New",
+        )
+
+        stats = indexer.update_index(str(tmp_vault))
+        assert stats["added"] == 1
+        assert stats["removed"] == 0
+        assert stats["updated"] == 0
+        assert indexer.get_skill("new-skill") is not None
+
+    def test_detects_removed_skill(self, tmp_vault, sample_skills, indexer):
+        ops = VaultOps(str(tmp_vault))
+        skills = ops.scan_skills()
+        indexer.build_index(skills)
+
+        # Delete a skill file
+        (tmp_vault / "skills" / "writing" / "documentation-writing.md").unlink()
+
+        stats = indexer.update_index(str(tmp_vault))
+        assert stats["removed"] == 1
+        assert stats["added"] == 0
+        assert indexer.get_skill("documentation-writing") is None
+
+    def test_no_changes(self, tmp_vault, sample_skills, indexer):
+        ops = VaultOps(str(tmp_vault))
+        skills = ops.scan_skills()
+        indexer.build_index(skills)
+
+        stats = indexer.update_index(str(tmp_vault))
+        assert stats["added"] == 0
+        assert stats["removed"] == 0
+        assert stats["updated"] == 0

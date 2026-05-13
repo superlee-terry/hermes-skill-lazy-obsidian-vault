@@ -50,3 +50,33 @@ class VaultOps:
             if md_file.stem == name:
                 return str(md_file.relative_to(self.vault_path))
         return None
+
+    def list_tags(self) -> dict[str, int]:
+        """Return all tags and their occurrence counts across the vault."""
+        tag_counts: dict[str, int] = {}
+        if not self.vault_path.exists():
+            return tag_counts
+        for md_file in self.vault_path.rglob("*.md"):
+            try:
+                with open(md_file, "r", encoding="utf-8") as f:
+                    post = frontmatter.load(f)
+                for tag in post.metadata.get("tags", []):
+                    tag_counts[tag] = tag_counts.get(tag, 0) + 1
+            except Exception:
+                continue
+        return dict(sorted(tag_counts.items()))
+
+    def list_backlinks(self, name: str) -> list[str]:
+        """Find all notes that contain a wikilink [[name]]."""
+        backlinks = []
+        if not self.vault_path.exists():
+            return backlinks
+        pattern = f"[[{name}]]"
+        for md_file in self.vault_path.rglob("*.md"):
+            try:
+                text = md_file.read_text(encoding="utf-8")
+                if pattern in text:
+                    backlinks.append(str(md_file.relative_to(self.vault_path)))
+            except Exception:
+                continue
+        return sorted(backlinks)

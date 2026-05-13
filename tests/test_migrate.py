@@ -42,3 +42,22 @@ class TestMigrate:
         migrate_skills(str(hermes_skills_dir), str(tmp_vault))
         tdd_path = tmp_vault / "skills" / "software-development" / "testing" / "my-tdd.md"
         assert tdd_path.exists()
+
+    def test_migrate_generates_hub_notes(self, hermes_skills_dir, tmp_vault):
+        migrate_skills(str(hermes_skills_dir), str(tmp_vault))
+        # Should have hub notes for each category
+        testing_hub = tmp_vault / "_index" / "testing.md"
+        research_hub = tmp_vault / "_index" / "research.md"
+        assert testing_hub.exists()
+        assert research_hub.exists()
+        ops = VaultOps(str(tmp_vault))
+        note = ops.read_note("_index/testing.md")
+        assert "[[my-tdd]]" in note["content"]
+
+    def test_migrate_generates_no_duplicate_hubs(self, hermes_skills_dir, tmp_vault):
+        migrate_skills(str(hermes_skills_dir), str(tmp_vault))
+        migrate_skills(str(hermes_skills_dir), str(tmp_vault))
+        # Second run should overwrite, not duplicate
+        ops = VaultOps(str(tmp_vault))
+        skills = ops.scan_skills()
+        assert len(skills) == 2
