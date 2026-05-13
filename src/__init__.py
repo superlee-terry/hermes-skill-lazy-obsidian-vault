@@ -8,6 +8,7 @@ from .indexer import SkillIndexer
 from .tools import SkillTools
 from .hooks import build_session_context
 from .sync import sync_skill_to_vault, remove_skill_from_vault
+from .enricher import configure as enricher_configure, enrich_meta, enrich_newly_indexed
 
 logger = logging.getLogger(__name__)
 
@@ -127,7 +128,7 @@ _config: VaultConfig | None = None
 _indexer: SkillIndexer | None = None
 
 
-def _get_tools(config_path: str) -> tuple[SkillTools, VaultConfig, SkillIndexer]:
+def _get_tools(config_path: str, llm_enricher=None) -> tuple[SkillTools, VaultConfig, SkillIndexer]:
     global _tools_instance, _config, _indexer
     if _tools_instance is not None:
         return _tools_instance, _config, _indexer
@@ -143,7 +144,7 @@ def _get_tools(config_path: str) -> tuple[SkillTools, VaultConfig, SkillIndexer]
         db_path = plugin_dir / config.db_path
 
     indexer = SkillIndexer(str(db_path))
-    _tools_instance = SkillTools(config.vault_path, indexer)
+    _tools_instance = SkillTools(config.vault_path, indexer, llm_enricher=llm_enricher)
     _config = config
     _indexer = indexer
     return _tools_instance, _config, _indexer
@@ -268,7 +269,20 @@ def _on_post_tool_call(
 def register(ctx) -> None:
     """Hermes Plugin entry point — called by PluginManager."""
     config_path = str(Path(__file__).parent.parent / "config.yaml")
-    tools, config, indexer = _get_tools(config_path)
+
+    # Detect ctx.llm availability (Hermes v0.13.0+)
+    _llm_ref = getattr(ctx, 'llm', None)
+
+    # Read config first to get LlmConfig
+    config = VaultConfig.from_file(config_path)
+
+    # Configure enricher with ctx.llm and config
+    enricher_configure(_llm_ref, config.llm)
+
+    # Determine enricher callable
+    _llm_enricher = enrich_meta if _llm_ref and config.llm.enabled else None
+
+    tools, config, indexer = _get_tools(config_path, llm_enricher=_llm_enricher)
 
     _TOOLS = (
         ("skill_lookup", SKILL_LOOKUP_SCHEMA, _handle_skill_lookup, "🔍"),
@@ -295,6 +309,11 @@ def register(ctx) -> None:
             if stats["added"] or stats["updated"] or stats["removed"]:
                 logger.info("obsidian-skill-vault: index sync +%d ~%d -%d",
                             stats["added"], stats["updated"], stats["removed"])
+            # LLM enrichment for newly indexed skills with weak metadata
+            try:
+                enrich_newly_indexed(tools, config, stats)
+            except Exception:
+                logger.debug("obsidian-skill-vault: index enrichment failed", exc_info=True)
         except Exception:
             logger.debug("obsidian-skill-vault: index sync failed", exc_info=True)
 

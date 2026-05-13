@@ -2,14 +2,26 @@
 
 将 Hermes Agent 的 SKILL.md 技能定义迁移到本地 Obsidian Vault，通过 Obsidian 的文件夹结构、标签和 wikilink 实现技能分类，配合 Hermes Plugin 实现按需加载（lazy loading），替代默认的 `<available_skills>` 全量预加载机制。
 
+## Hermes 版本兼容性
+
+| 插件版本 | Hermes 版本 | 说明 |
+|---------|------------|------|
+| 0.1.0 | v0.12.0 (2026.4.30) | 初始版本，完整 Plugin API：`register_tool`、`register_hook`、`post_tool_call` |
+| 0.2.0 (计划) | v0.13.0 (2026.5.7)+ | 新增 `ctx.llm` 集成：自动生成摘要、关键词、分类推断 |
+
+**v0.12.x → v0.13.0 破坏性变更**：无。Plugin API 完全向后兼容，`register_tool`、`register_hook`、`pre_llm_call`、`post_tool_call` 签名未变。
+
+**v0.13.0 新增能力**：`ctx.llm.complete()` / `ctx.llm.complete_structured()` — 插件可直接调用宿主 LLM，无需自带 API Key。详见 [设计文档：LLM 增强方案](docs/design.md)。
+
 ## 产物形态
 
 **Hermes Plugin**（首选） + **MCP Server**（备选），不修改 Hermes 核心代码。
 
 通过 Hermes 官方 Plugin API（`register(ctx)`）注册工具、Hook、CLI 命令：
-- `ctx.register_tool()` → skill_lookup / skill_load / skill_categories
-- `ctx.register_hook("on_session_start")` → 注入精简分类目录到 system prompt
-- `ctx.register_cli_command()` → `hermes vault migrate/index/doctor`
+- `ctx.register_tool()` → skill_lookup / skill_load / skill_categories / skill_install
+- `ctx.register_hook("on_session_start")` → 增量索引同步
+- `ctx.register_hook("pre_llm_call")` → 注入精简分类目录到 context
+- `ctx.register_hook("post_tool_call")` → 监听 skill_manage 变更并同步 vault
 
 ## 安装方式
 

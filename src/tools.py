@@ -2,6 +2,7 @@ import re
 import logging
 import frontmatter
 from pathlib import Path
+from typing import Callable
 
 from .indexer import SkillIndexer
 from .vault_ops import VaultOps
@@ -12,10 +13,12 @@ logger = logging.getLogger(__name__)
 
 
 class SkillTools:
-    def __init__(self, vault_path: str, indexer: SkillIndexer):
+    def __init__(self, vault_path: str, indexer: SkillIndexer,
+                 llm_enricher: Callable | None = None):
         self.vault_path = vault_path
         self.indexer = indexer
         self.search = SkillSearch(indexer)
+        self._llm_enricher = llm_enricher
 
     def skill_lookup(self, query: str, category: str = None, top_k: int = 3) -> list[dict]:
         results = self.search.search(query, category=category, top_k=top_k)
@@ -58,7 +61,8 @@ class SkillTools:
             return self._delete(name)
         return {"success": False, "error": f"Unknown action '{action}'. Use: create, edit, delete"}
 
-    def _normalize_meta(self, content: str, category: str = "", description: str = "") -> tuple[dict, str]:
+    def _normalize_meta(self, content: str, category: str = "", description: str = "",
+                        mode: str = "create") -> tuple[dict, str]:
         """Parse SKILL.md content, normalize metadata. Returns (meta, body, error)."""
         if content.startswith("---"):
             post = frontmatter.loads(content)
@@ -106,6 +110,13 @@ class SkillTools:
                 triggers.insert(0, name_trigger)
             meta["triggers"] = triggers
 
+        # LLM enrichment (optional, graceful degradation)
+        if self._llm_enricher is not None:
+            try:
+                meta = self._llm_enricher(meta, body, mode=mode)
+            except Exception:
+                logger.debug("LLM enricher failed, using rule-based metadata", exc_info=True)
+
         return meta, body, None
 
     def _create(self, name: str, content: str, category: str, description: str) -> dict:
@@ -113,7 +124,7 @@ class SkillTools:
         if not content.strip():
             return {"success": False, "error": "content is required for 'create'."}
 
-        meta, body, err = self._normalize_meta(content, category, description)
+        meta, body, err = self._normalize_meta(content, category, description, mode="create")
         if err:
             return {"success": False, "error": err}
 
@@ -154,7 +165,7 @@ class SkillTools:
         if not content.strip():
             return {"success": False, "error": "content is required for 'edit'."}
 
-        meta, body, err = self._normalize_meta(content)
+        meta, body, err = self._normalize_meta(content, mode="edit")
         if err:
             return {"success": False, "error": err}
 
@@ -191,6 +202,35 @@ class SkillTools:
         self._remove_from_hermes(name)
 
         return {"success": True, "message": f"Skill '{name}' deleted."}
+
+    def enrich_skill(self, name: str) -> bool:
+        """Re-read a skill, enrich its metadata via LLM, write back.
+
+        Returns True if metadata was updated, False otherwise.
+        """
+        if self._llm_enricher is None:
+            return False
+
+        skill_data = self.indexer.get_skill(name)
+        if skill_data is None:
+            return False
+
+        ops = VaultOps(self.vault_path)
+        note = ops.read_note(skill_data["path"])
+        meta = dict(note["metadata"])
+        body = note["content"]
+
+        try:
+            enriched = self._llm_enricher(meta, body, mode="index")
+        except Exception:
+            logger.debug("LLM enricher failed for '%s'", name, exc_info=True)
+            return False
+
+        if enriched == meta:
+            return False
+
+        ops.write_note(skill_data["path"], enriched, body)
+        return True
 
     def _sync_to_hermes(self, name: str, content: str, category: str = "") -> None:
         """Write a copy to ~/.hermes/skills/ for native compatibility."""

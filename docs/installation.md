@@ -2,9 +2,13 @@
 
 ## 前置条件
 
-- Hermes Agent 已安装并运行（网关模式或 CLI 模式）
+- Hermes Agent 已安装并运行（网关模式或 CLI 模式），**v0.12.0+**
 - Python 3.10+
 - `python-frontmatter` 包（Hermes venv 中需要安装）
+
+> **版本说明**：插件 0.1.0 适用于 Hermes v0.12.x，提供完整的技能搜索/加载/管理功能。
+> Hermes v0.13.0+ 额外提供 `ctx.llm` 能力（可选），用于 LLM 辅助技能增强。
+> 详见 [compatibility.md](compatibility.md)。
 
 ## 安装方式
 
@@ -132,13 +136,33 @@ plugins:
 ```yaml
 vault:
   path: vault          # Vault 相对路径（相对于插件目录）
-  db_path: skill_index.db  # SQLite 索引路径
+  db_path: skill_index.db  # SQLite FTS5 索引路径
 
 hermes:
   always_load: []       # 始终注入完整内容的技能名列表
   include_category_index: true
-  discovery_prompt: ""  # 自定义发现提示（留空使用默认）
+  discovery_prompt: ""  # 自定义发现提示（留空使用默认模板）
+  llm:                  # LLM 增强（Hermes v0.13.0+，v0.12.x 自动跳过）
+    enabled: true           # 总开关
+    enrich_on_create: true  # 创建技能时用 LLM 补全 summary/triggers
+    enrich_on_edit: true    # 编辑技能时用 LLM 刷新元数据
+    enrich_on_index: true   # 会话启动时批量补全缺元数据的技能
+    max_enrich_per_session: 5  # 每次会话最多补全技能数
+    timeout_seconds: 5.0       # 单次 LLM 调用超时（秒）
 ```
+
+如需启用 `ctx.llm`（Hermes v0.13.0+），还需在 `~/.hermes/config.yaml` 中配置信任标志：
+
+```yaml
+plugins:
+  enabled:
+    - obsidian-skill-vault
+  entries:
+    obsidian-skill-vault:
+      llm: {}             # 空 block 即可启用，无需覆盖模型
+```
+
+不配置此条目时，`ctx.llm` 调用会失败，插件自动降级到规则引擎，不影响核心功能。
 
 ### 3. 重启网关
 
@@ -229,3 +253,14 @@ agent:
 ### 5. Vault 数据不在 Git 中
 
 `vault/skills/` 和 `vault/_index/` 已在 `.gitignore` 中排除。技能数据是用户特定的，不应提交到公开仓库。每个部署环境需要独立执行技能迁移。
+
+### 6. LLM 增强的降级行为
+
+LLM 增强是可选功能，不启用不影响核心技能搜索/加载/管理：
+
+| 条件 | 行为 |
+|------|------|
+| Hermes v0.12.x | `ctx.llm` 不存在，LLM 增强完全跳过 |
+| `llm.enabled: false` | 所有 LLM 调用跳过，使用规则引擎 |
+| `plugins.entries` 未配置 | `ctx.llm` 调用失败，自动降级 |
+| LLM 超时/报错 | 首次失败后禁用当前会话的 LLM 增强 |

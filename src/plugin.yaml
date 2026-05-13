@@ -3,6 +3,7 @@ version: 0.1.0
 description: "Obsidian Vault 驱动的技能懒加载 Plugin"
 author: hermes-skill-lazy-obsidian-vault
 kind: standalone
+requires_hermes: ">=0.12.0"
 provides_tools:
   - skill_lookup
   - skill_load
@@ -12,3 +13,6 @@ provides_hooks:
   - on_session_start
   - pre_llm_call
   - post_tool_call
+notes:
+  - "v0.12.0: 完整 Plugin API，skill_lookup/load/categories/install"
+  - "v0.13.0+: 可选 ctx.llm 增强技能元数据（需配置 plugins.entries 信任标志）"

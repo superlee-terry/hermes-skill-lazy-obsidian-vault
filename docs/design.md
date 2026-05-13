@@ -219,7 +219,7 @@ steps:
     with: { path: dist/obsidian-skill-vault* }
 ```
 
-## 4. 架构总览（更新）
+## 4. 架构总览
 
 ```
 ┌─────────────────────────────────────────────────────────┐
@@ -257,7 +257,7 @@ steps:
                     └────────────────────────────────┘
 ```
 
-## 4. 三层设计
+## 5. 三层设计
 
 ### 4.1 存储层：Obsidian Vault
 
@@ -412,7 +412,7 @@ type: hub
 }
 ```
 
-## 5. System Prompt 结构变化
+## 6. System Prompt 结构变化
 
 ### Before（全量预加载）
 
@@ -450,7 +450,7 @@ type: hub
 
 **体积变化**：~100KB → ~2KB（减少 98%）
 
-## 6. 工作流程
+## 7. 工作流程
 
 ```
 用户输入 "帮我用 TDD 方式写一个 Python 函数"
@@ -477,7 +477,7 @@ MCP Server 读取 vault/skills/software-development/testing/tdd-workflow.md
 返回完整技能内容 → Agent 按 TDD Workflow 执行任务
 ```
 
-## 7. 迁移策略
+## 8. 迁移策略
 
 从现有 `~/.hermes/skills/` 迁移到 Obsidian Vault：
 
@@ -500,7 +500,151 @@ vault/skills/software-development/testing/tdd-workflow.md
 5. 创建 Hub Notes（`_index/`）连接同分类技能
 6. 构建初始 SQLite 索引
 
-## 8. 与现有项目的关系
+## 9. LLM 增强方案（Hermes v0.13.0+）
+
+### 8.1 背景
+
+Hermes v0.13.0 新增 `ctx.llm` API，允许插件直接调用宿主的 LLM，无需自带 Provider 或 API Key：
+
+```python
+# 聊天补全
+result = ctx.llm.complete(
+    messages=[{"role": "user", "content": "..."}],
+    max_tokens=500,
+)
+
+# 结构化推理（JSON Schema 验证）
+result = ctx.llm.complete_structured(
+    instructions="根据技能内容生成摘要",
+    input=[{"type": "text", "text": skill_body}],
+    json_schema={
+        "type": "object",
+        "properties": {
+            "summary": {"type": "string"},
+            "triggers": {"type": "array", "items": {"type": "string"}},
+            "category": {"type": "string"},
+        },
+        "required": ["summary", "triggers"],
+    },
+)
+```
+
+### 8.2 增强场景
+
+| 场景 | 触发时机 | LLM 任务 | 价值 |
+|------|---------|---------|------|
+| **创建技能时补全元数据** | `skill_install(action="create")` | 从内容推断 `summary`、`triggers`、`category` | 减少用户手动填写，提升索引质量 |
+| **编辑技能时刷新摘要** | `skill_install(action="edit")` | 比较 diff，更新过时的 summary 和 triggers | 保持索引与内容同步 |
+| **索引更新时批量优化** | `on_session_start` → `update_index()` 检测到 changed skills | 为缺少 summary/triggers 的技能补全 | 修复迁移遗留的空字段 |
+| **搜索结果摘要优化** | `skill_lookup()` 返回结果 | 为匹配结果生成中文+英文双语 summary | 改善搜索结果的可读性 |
+| **分类推断** | 技能无 category 或 category 不明确 | 根据内容推断最合适的分类 | 优化分类体系 |
+
+### 8.3 实现策略
+
+#### Phase 1：创建时补全（`tools.py` 的 `_create` 方法）
+
+```python
+def _create(self, name, content, category, description, ctx_llm=None):
+    meta, body, err = self._normalize_meta(content, category, description)
+    if err:
+        return {"success": False, "error": err}
+
+    # 如果 frontmatter 中缺少 summary 或 triggers，尝试 LLM 补全
+    if ctx_llm and (not meta.get("summary") or not meta.get("triggers")):
+        enriched = self._llm_enrich_metadata(ctx_llm, body, meta)
+        if enriched.get("summary"):
+            meta["summary"] = enriched["summary"]
+        if enriched.get("triggers"):
+            meta["triggers"] = enriched["triggers"]
+
+    # ... 继续创建逻辑
+```
+
+#### Phase 2：索引更新时批量优化（`hooks.py` 的 `on_session_start`）
+
+```python
+def _on_session_start(indexer, config, ctx_llm=None, **kwargs):
+    stats = indexer.update_index(config.vault_path)
+
+    # 为新索引的技能补全元数据（仅处理缺少 summary 的）
+    if ctx_llm and stats.get("added", 0) > 0:
+        skills_needing_enrichment = indexer.get_skills_missing_field("summary")
+        for skill in skills_needing_enrichment[:5]:  # 每次最多处理 5 个，避免延迟
+            _enrich_skill_metadata(ctx_llm, skill, indexer, config.vault_path)
+```
+
+#### Phase 3：搜索结果增强（`tools.py` 的 `skill_lookup`）
+
+```python
+def skill_lookup(self, query, category=None, top_k=3, ctx_llm=None):
+    results = self.search.search(query, category=category, top_k=top_k)
+
+    # 如果 summary 太短或为空，异步补全（不阻塞返回）
+    for r in results:
+        if len(r.get("summary", "")) < 20 and ctx_llm:
+            # 标记为需要补全，下次 lookup 时可能已有
+            pass
+
+    return results
+```
+
+### 8.4 配置
+
+`ctx.llm` 需要在 `~/.hermes/config.yaml` 中配置信任标志：
+
+```yaml
+plugins:
+  enabled:
+    - obsidian-skill-vault
+  entries:
+    obsidian-skill-vault:
+      llm:
+        allow_model_override: true
+        allowed_models:
+          - "*"        # 允许使用任意模型
+```
+
+插件自身的配置扩展：
+
+```yaml
+# ~/.hermes/plugins/obsidian-skill-vault/config.yaml
+llm:
+  enabled: true                    # 是否启用 LLM 增强（默认 false）
+  enrich_on_create: true           # 创建技能时补全元数据
+  enrich_on_index: true            # 索引更新时批量补全
+  max_enrich_per_session: 5        # 每次会话最多补全的技能数
+  model: ""                        # 指定模型（留空使用默认）
+```
+
+### 8.5 降级策略
+
+`ctx.llm` 是可选增强，不影响核心功能：
+
+```
+ctx.llm 可用？
+├── Yes → 调用 LLM 补全 summary/triggers/category
+│         超时或失败 → fallback 到规则引擎（现有逻辑）
+└── No  → 使用规则引擎（_extract_triggers_from_body、_collect_tags）
+          现有功能不受影响
+```
+
+| 降级条件 | 行为 |
+|---------|------|
+| Hermes < v0.13.0 | `ctx_llm` 为 None，完全跳过 LLM 增强 |
+| `llm.enabled: false` | 跳过 LLM 增强 |
+| `ctx.llm` 调用超时/失败 | 记录警告，使用规则引擎结果 |
+| `plugins.entries` 未配置信任 | `ctx.llm` 调用会报错，catch 后降级 |
+
+### 8.6 与 v0.12.x 的关系
+
+v0.12.x 完全不支持 `ctx.llm`。插件 0.1.0 在 v0.12.x 上运行时：
+- `register()` 的 `ctx` 参数没有 `.llm` 属性
+- 插件不会尝试访问 `ctx.llm`，所有元数据通过规则引擎生成
+- 功能完整，仅缺少 LLM 辅助的智能推断
+
+升级到 v0.13.0 后，只需在 `config.yaml` 中添加 `plugins.entries` 配置即可启用 LLM 增强，无需修改插件代码。
+
+## 10. 与现有项目的关系
 
 | 项目 | 借鉴点 | 本项目的差异化 |
 |------|--------|---------------|
@@ -509,7 +653,7 @@ vault/skills/software-development/testing/tdd-workflow.md
 | baiye-hermes-skills | Obsidian Vault 目录结构 | 从"存储输出"改为"存储技能定义" |
 | Zettelkasten-Obsidian-Hermes-Skill | 笔记分类方法论 | Hub/Structure notes 作为技能索引 |
 
-## 9. 技术选型
+## 11. 技术选型
 
 | 组件 | 选择 | 理由 |
 |------|------|------|
@@ -519,7 +663,7 @@ vault/skills/software-development/testing/tdd-workflow.md
 | MCP Server | Python + mcp-sdk | 生态成熟、与 Hermes 兼容 |
 | 迁移脚本 | Python | 处理 YAML、Markdown、文件操作 |
 
-## 10. 风险与缓解
+## 12. 风险与缓解
 
 | 风险 | 缓解措施 |
 |------|---------|

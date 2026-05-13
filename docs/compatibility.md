@@ -2,6 +2,23 @@
 
 本插件通过禁用 Hermes 内建的 `skills` 工具集，用 Obsidian Vault + SQLite FTS5 方案替代。本文档详细说明禁用后的影响及插件的补偿措施。
 
+## Hermes 版本兼容性矩阵
+
+| 功能 | v0.12.0 | v0.13.0+ | 说明 |
+|------|---------|----------|------|
+| `register_tool()` | ✅ | ✅ | 无变更 |
+| `register_hook()` | ✅ | ✅ | 无变更 |
+| `pre_llm_call` 返回 `{"context": ...}` | ✅ | ✅ | 无变更 |
+| `post_tool_call` hook | ✅ | ✅ | v0.13.0 新增 `chat_id` 到 hook_ctx，不影响现有参数 |
+| `on_session_start` hook | ✅ | ✅ | 无变更 |
+| `disabled_toolsets: [skills]` | ✅ | ✅ | 配置方式不变 |
+| `ctx.llm.complete()` | ❌ | ✅ | v0.13.0 新增，需要 `plugins.entries` 配置信任标志 |
+| `ctx.llm.complete_structured()` | ❌ | ✅ | v0.13.0 新增，JSON Schema 验证 |
+| `transform_llm_output` hook | ❌ | ✅ | v0.13.0 新增，可用于输出格式化 |
+| `skill_utils` mtime 缓存 | ❌ | ✅ | v0.13.0 性能优化，~120 技能启动从 10s+ 降到 <1s |
+
+**升级建议**：v0.12.0 → v0.13.0 无破坏性变更，可直接 `git pull && pip install -e .`。`ctx.llm` 为可选增强，不启用不影响现有功能。
+
 ## 禁用的工具集
 
 在 `~/.hermes/config.yaml` 中配置：
