@@ -53,8 +53,10 @@ class SkillIndexer:
                 "INSERT INTO skills (name, path, categories, tags, triggers, summary) "
                 "VALUES (?, ?, ?, ?, ?, ?)",
                 (skill.name, skill.path,
-                 json.dumps(skill.categories), json.dumps(skill.tags),
-                 json.dumps(skill.triggers), skill.summary),
+                 json.dumps(skill.categories, ensure_ascii=False),
+                 json.dumps(skill.tags, ensure_ascii=False),
+                 json.dumps(skill.triggers, ensure_ascii=False),
+                 skill.summary),
             )
             count += 1
         self.conn.commit()
