@@ -62,8 +62,11 @@ def main(argv=None):
             print(f"All {len(skills)} skills are healthy")
 
     elif args.command == "serve":
-        print("MCP Server mode not yet implemented in MVP")
-        sys.exit(1)
+        from .main import serve
+        db = args.db
+        if not Path(db).is_absolute():
+            db = str(Path(args.vault).parent / db)
+        serve(args.vault, db)
 
     else:
         parser.print_help()
