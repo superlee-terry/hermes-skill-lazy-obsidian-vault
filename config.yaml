@@ -1,0 +1,53 @@
+# Hermes Skill Lazy Obsidian Vault 配置
+
+vault:
+  # Obsidian Vault 根目录
+  path: "./vault"
+  # 技能文件存放子目录
+  skills_dir: "skills"
+  # 索引笔记目录
+  index_dir: "_index"
+
+index:
+  # 索引数据库路径
+  db_path: "./mcp-server/skill_index.db"
+  # 索引模式: fts | hybrid | semantic
+  mode: "hybrid"
+  # 是否启用文件监听自动更新
+  watch: true
+  # 全量重建间隔（秒）
+  rebuild_interval: 3600
+
+migration:
+  # 原始 Hermes 技能目录
+  source: "~/.hermes/skills"
+  # 是否保留原始文件
+  keep_original: true
+  # 分类推断策略: directory | manual | auto
+  category_strategy: "directory"
+
+mcp:
+  # MCP Server 监听配置
+  transport: "stdio"
+  # 检索结果数量上限
+  max_results: 5
+  # 相关性阈值（0-1）
+  relevance_threshold: 0.3
+
+hermes:
+  # 是否在 system prompt 中包含分类目录
+  include_category_index: true
+  # 始终加载的核心技能（不受 lazy loading 影响）
+  always_load:
+    - "brainstorming"
+    - "debugging"
+    - "task-management"
+  # system prompt 中注入的发现指引
+  discovery_prompt: |
+    <skill_discovery>
+    可用 MCP 工具发现和加载技能：
+    - skill_lookup(query, category?, top_k?): 搜索相关技能
+    - skill_load(name): 加载技能完整内容
+    - skill_categories(): 列出所有分类
+    优先根据分类定位，再调用 skill_lookup 精确查找。
+    </skill_discovery>
